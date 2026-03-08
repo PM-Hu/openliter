@@ -10,16 +10,18 @@ datasource db {
 }
 
 model Paper {
-  id          Int      @id @default(autoincrement())
-  title       String
-  authors     String?
-  abstract    String?
-  tldr        String?
-  arxivId     String?  @unique
-  pdfUrl      String?
-  categoryId  Int?
-  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  title            String
+  authors          String?
+  abstract         String?
+  tldr             String?
+  arxivId          String?  @unique
+  pdfUrl           String?
+  journalName      String?
+  publicationDate  DateTime?
+  categoryId       Int?
+  category         Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdAt        DateTime @default(now())
 }
 
 model Category {

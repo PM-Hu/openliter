@@ -15,6 +15,8 @@ interface Paper {
   tldr?: string;
   arxivId?: string;
   pdfUrl?: string;
+  journalName?: string;
+  publicationDate?: Date;
   categoryId?: number | null;
   createdAt: Date;
 }
@@ -1016,6 +1018,18 @@ export default function Home() {
                             <div className="flex-1 min-w-0">
                               <h4 className="text-sm font-medium mb-1 line-clamp-2">{paper.title}</h4>
                               <p className="text-xs text-gray-600 mb-1">👤 {paper.authors}</p>
+                              {(paper.journalName || paper.publicationDate || paper.pubDate) && (
+                                <div className="flex items-center gap-2 mb-1">
+                                  {paper.journalName && (
+                                    <span className="text-xs text-purple-700">📚 {paper.journalName}</span>
+                                  )}
+                                  {(paper.publicationDate || paper.pubDate) && (
+                                    <span className="text-xs text-gray-400">
+                                      📅 {new Date(paper.publicationDate || paper.pubDate).toLocaleDateString()}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                               <p className="text-xs text-gray-500 line-clamp-2">
                                 {paper.abstract || '暂无摘要'}
                               </p>
@@ -1023,11 +1037,6 @@ export default function Home() {
                                 <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
                                   {paper.sourceName}
                                 </span>
-                                {paper.pubDate && (
-                                  <span className="text-xs text-gray-400">
-                                    {new Date(paper.pubDate).toLocaleDateString()}
-                                  </span>
-                                )}
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -1128,7 +1137,17 @@ export default function Home() {
                               </span>
                             )}
                           </div>
-                          <CardDescription>{paper.authors}</CardDescription>
+                          <CardDescription className="mb-1">{paper.authors}</CardDescription>
+                          {(paper.journalName || paper.publicationDate) && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {paper.journalName && (
+                                <span>📚 {paper.journalName}</span>
+                              )}
+                              {paper.publicationDate && (
+                                <span>📅 {new Date(paper.publicationDate).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <Button
                           variant="ghost"

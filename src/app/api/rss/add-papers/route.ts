@@ -29,6 +29,19 @@ export async function POST(request: Request) {
           continue;
         }
 
+        // 解析发布日期（优先使用 publicationDate，回退到 pubDate）
+        let publicationDate = null;
+        const dateSource = paper.publicationDate || paper.pubDate;
+
+        if (dateSource) {
+          // 如果是字符串，解析为 Date；如果已经是 Date 对象，直接使用
+          publicationDate = typeof dateSource === 'string' ? new Date(dateSource) : dateSource;
+          // 检查日期是否有效
+          if (isNaN(publicationDate.getTime())) {
+            publicationDate = null;
+          }
+        }
+
         // 保存论文
         await prisma.paper.create({
           data: {
@@ -37,6 +50,8 @@ export async function POST(request: Request) {
             abstract: paper.abstract,
             pdfUrl: paper.link,
             arxivId: null,
+            journalName: paper.journalName,
+            publicationDate: publicationDate,
           },
         });
 

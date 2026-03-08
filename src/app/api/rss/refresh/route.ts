@@ -165,6 +165,36 @@ export async function POST(request: Request) {
                               source.url.toLowerCase().includes('elsevier') ||
                               source.url.toLowerCase().includes('sciencedirect');
 
+            // 提取期刊名和发表日期
+            let journalName = source.name;
+            let publicationDate = null;
+
+            console.log(`    📊 检查 isElsevier: ${isElsevier}, content 存在: ${!!item.content}`);
+
+            if (isElsevier && item.content) {
+              console.log(`    🔧 开始提取期刊和日期信息...`);
+              // 从 content 提取期刊名
+              const extractedJournal = extractJournalFromContent(item.content);
+              if (extractedJournal) {
+                journalName = extractedJournal;
+                console.log(`    ✅ 使用提取的期刊名: ${journalName}`);
+              }
+
+              // 从 content 提取发表日期
+              const extractedDate = extractPublicationDateFromContent(item.content);
+              if (extractedDate) {
+                publicationDate = extractedDate;
+                console.log(`    ✅ 使用提取的日期: ${publicationDate.toISOString()}`);
+              }
+            } else if (item.pubDate) {
+              // 非 Elsevier 论文使用 RSS 的 pubDate
+              const parsedDate = new Date(item.pubDate);
+              if (!isNaN(parsedDate.getTime())) {
+                publicationDate = parsedDate;
+                console.log(`    ℹ️ 使用 RSS pubDate: ${publicationDate.toISOString()}`);
+              }
+            }
+
             // 对于 Elsevier，先尝试从 content 提取作者，如果没有则使用默认方法
             let authors = extractAuthors(item);
             let abstract = '';
@@ -207,6 +237,8 @@ export async function POST(request: Request) {
                 abstract: abstract,
                 arxivId: arxivId,
                 pdfUrl: pdfUrl,
+                journalName: journalName,
+                publicationDate: publicationDate,
               },
             });
 
@@ -267,6 +299,103 @@ function extractAuthors(item: any): string {
   if (item.creator) return item.creator;
   if (item['dc:creator']) return item['dc:creator'];
   return 'Unknown';
+}
+
+// 从 Elsevier 的 content 中提取发表日期
+function extractPublicationDateFromContent(content: string): Date | null {
+  if (!content) {
+    console.log(`    ⚠️ content 为空，无法提取日期`);
+    return null;
+  }
+
+  try {
+    // 解码 HTML 实体
+    let decoded = content
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+
+    console.log(`    🔍 尝试从 content 提取日期...`);
+    console.log(`    📝 Content 预览: ${decoded.substring(0, 200)}...`);
+
+    // 匹配模式: <p>Publication date: 2 May 2026</p>
+    const datePatterns = [
+      /<p>\s*Publication date:\s*([^<]+?)\s*<\/p>/i,
+      /Publication date:\s*([^<\n]+)/i,
+    ];
+
+    for (const pattern of datePatterns) {
+      const match = decoded.match(pattern);
+      console.log(`    🔎 匹配模式: ${pattern}, 结果:`, match ? `找到: ${match[1]}` : '未匹配');
+      if (match && match[1]) {
+        const dateStr = match[1].trim();
+        console.log(`    📅 日期字符串: "${dateStr}"`);
+        // 尝试解析日期
+        const parsedDate = new Date(dateStr);
+        console.log(`    ✅ 解析结果: ${parsedDate.toISOString()}`);
+        if (!isNaN(parsedDate.getTime())) {
+          return parsedDate;
+        }
+      }
+    }
+
+    console.log(`    ⚠️ 所有模式都未匹配到日期`);
+    return null;
+  } catch (error) {
+    console.error(`    ❌ 提取日期异常:`, error);
+    return null;
+  }
+}
+
+// 从 Elsevier 的 content 中提取期刊名
+function extractJournalFromContent(content: string): string | null {
+  if (!content) {
+    console.log(`    ⚠️ content 为空，无法提取期刊名`);
+    return null;
+  }
+
+  try {
+    // 解码 HTML 实体
+    let decoded = content
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+
+    console.log(`    🔍 尝试从 content 提取期刊名...`);
+
+    // 匹配模式: <p><b>Source:</b> Engineering Fracture Mechanics, Volume 337</p>
+    const journalPatterns = [
+      /<p>\s*<b>\s*Source:\s*<\/b>\s*([^<]+?)\s*<\/p>/i,
+      /<p>\s*Source:\s*([^<]+?)\s*<\/p>/i,
+      /Source:\s*([^<\n]+)/i,
+    ];
+
+    for (const pattern of journalPatterns) {
+      const match = decoded.match(pattern);
+      console.log(`    🔎 匹配期刊模式: ${pattern}, 结果:`, match ? `找到: ${match[1]}` : '未匹配');
+      if (match && match[1]) {
+        const journal = match[1].trim();
+        // 移除 "Volume XXX" 部分，只保留期刊名
+        const journalName = journal.replace(/,\s*Volume\s*\d+.*$/i, '').trim();
+        console.log(`    📚 期刊名: "${journalName}"`);
+        if (journalName.length > 0 && journalName.length < 200) {
+          return journalName;
+        }
+      }
+    }
+
+    console.log(`    ⚠️ 所有模式都未匹配到期刊名`);
+    return null;
+  } catch (error) {
+    console.error(`    ❌ 提取期刊名异常:`, error);
+    return null;
+  }
 }
 
 // 从 Elsevier 的 content 中提取作者信息
