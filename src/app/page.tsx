@@ -62,6 +62,19 @@ export default function Home() {
   const [newRssUrl, setNewRssUrl] = useState('');
   const [rssKeywords, setRssKeywords] = useState('');
   const [refreshingRss, setRefreshingRss] = useState(false);
+  const [testingRss, setTestingRss] = useState(false);
+  const [rssTestResult, setRssTestResult] = useState<{
+    success: boolean;
+    message: string;
+    info?: any;
+  } | null>(null);
+
+  // 预览相关状态
+  const [previewPapers, setPreviewPapers] = useState<any[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [selectedPreviewPapers, setSelectedPreviewPapers] = useState<Set<number>>(new Set());
+  const [fetchingAbstracts, setFetchingAbstracts] = useState<Set<number>>(new Set());
 
   // Toast状态
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -359,6 +372,12 @@ export default function Home() {
       return;
     }
 
+    // 检查是否已测试成功
+    if (!rssTestResult?.success) {
+      showToast('请先测试 RSS 源是否有效', 'error');
+      return;
+    }
+
     try {
       const res = await fetch('/api/rss/add', {
         method: 'POST',
@@ -371,6 +390,7 @@ export default function Home() {
       } else {
         setNewRssName('');
         setNewRssUrl('');
+        setRssTestResult(null); // 清除测试结果
         fetchRssSources();
         showToast('✅ RSS源已添加', 'success');
       }
@@ -437,6 +457,190 @@ export default function Home() {
     } catch (error) {
       console.error('初始化RSS源失败：', error);
       showToast('初始化失败', 'error');
+    }
+  };
+
+  // 测试 RSS 源
+  const testRssSource = async () => {
+    if (!newRssUrl) {
+      showToast('请输入 RSS URL', 'error');
+      return;
+    }
+
+    setTestingRss(true);
+    setRssTestResult(null);
+
+    try {
+      const res = await fetch('/api/rss/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: newRssUrl }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setRssTestResult({
+          success: true,
+          message: `✅ RSS 源有效！包含 ${data.feedInfo.totalItems} 篇论文`,
+          info: data,
+        });
+        showToast('✅ RSS 源测试成功', 'success');
+      } else {
+        setRssTestResult({
+          success: false,
+          message: `❌ ${data.error || '无法解析 RSS 源'}`,
+        });
+        showToast('❌ RSS 源无效', 'error');
+      }
+    } catch (error) {
+      console.error('测试RSS源失败：', error);
+      setRssTestResult({
+        success: false,
+        message: '❌ 连接失败，请检查 URL',
+      });
+      showToast('测试失败', 'error');
+    } finally {
+      setTestingRss(false);
+    }
+  };
+
+  // 预览 RSS 源
+  const previewRss = async () => {
+    setPreviewing(true);
+    setPreviewPapers([]);
+    setSelectedPreviewPapers(new Set());
+
+    try {
+      const sourceIds = rssSources.filter(s => s.isActive).map(s => s.id);
+      if (sourceIds.length === 0) {
+        showToast('请先添加并激活 RSS 源', 'error');
+        return;
+      }
+
+      const res = await fetch('/api/rss/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceIds,
+          keywords: rssKeywords,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setPreviewPapers(data.papers);
+        setShowPreview(true);
+        showToast(`📰 预览完成！找到 ${data.total} 篇新论文`, 'success');
+      } else {
+        showToast('预览失败：' + (data.error || '未知错误'), 'error');
+      }
+    } catch (error) {
+      console.error('预览RSS失败：', error);
+      showToast('预览失败', 'error');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  // 批量添加选中的预览论文
+  const addSelectedPapers = async () => {
+    if (selectedPreviewPapers.size === 0) {
+      showToast('请先选择要添加的论文', 'error');
+      return;
+    }
+
+    try {
+      const selectedPapers = previewPapers.filter((_, index) =>
+        selectedPreviewPapers.has(index)
+      );
+
+      const res = await fetch('/api/rss/add-papers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ papers: selectedPapers }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        fetchPapers();
+        fetchCategories();
+        setShowPreview(false);
+        setPreviewPapers([]);
+        setSelectedPreviewPapers(new Set());
+        showToast(`✅ 成功添加 ${data.addedCount} 篇论文`, 'success');
+      } else {
+        showToast('添加失败：' + (data.error || '未知错误'), 'error');
+      }
+    } catch (error) {
+      console.error('批量添加论文失败：', error);
+      showToast('添加失败', 'error');
+    }
+  };
+
+  // 切换预览论文选择
+  const togglePreviewPaper = (index: number) => {
+    setSelectedPreviewPapers(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
+  // 全选/取消全选预览论文
+  const toggleSelectAllPreview = () => {
+    if (selectedPreviewPapers.size === previewPapers.length) {
+      setSelectedPreviewPapers(new Set());
+    } else {
+      setSelectedPreviewPapers(new Set(previewPapers.map((_, i) => i)));
+    }
+  };
+
+  // 为预览论文获取摘要
+  const fetchAbstractForPaper = async (index: number) => {
+    setFetchingAbstracts(prev => new Set([...prev, index]));
+
+    try {
+      const paper = previewPapers[index];
+      const res = await fetch('/api/rss/fetch-abstract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: paper.title }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        // 更新论文的摘要和作者
+        setPreviewPapers(prev => prev.map((p, i) =>
+          i === index
+            ? {
+                ...p,
+                abstract: data.abstract.substring(0, 500),
+                authors: data.authors || p.authors,
+                hasAbstract: true,
+              }
+            : p
+        ));
+        showToast('✅ 摘要已获取', 'success');
+      } else {
+        showToast('获取失败：' + (data.error || '未知错误'), 'error');
+      }
+    } catch (error) {
+      console.error('获取摘要失败：', error);
+      showToast('获取摘要失败', 'error');
+    } finally {
+      setFetchingAbstracts(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(index);
+        return newSet;
+      });
     }
   };
 
@@ -620,8 +824,49 @@ export default function Home() {
                           onChange={(e) => setNewRssUrl(e.target.value)}
                           className="flex-1"
                         />
-                        <Button onClick={addRssSource}>添加</Button>
+                        <Button
+                          onClick={testRssSource}
+                          disabled={testingRss || !newRssUrl}
+                          variant="outline"
+                        >
+                          {testingRss ? '测试中...' : '测试'}
+                        </Button>
+                        <Button
+                          onClick={addRssSource}
+                          disabled={!rssTestResult?.success}
+                        >
+                          添加
+                        </Button>
                       </div>
+
+                      {/* 测试结果显示 */}
+                      {rssTestResult && (
+                        <div className={`mb-2 p-3 rounded text-sm ${
+                          rssTestResult.success
+                            ? 'bg-green-50 text-green-800 border border-green-200'
+                            : 'bg-red-50 text-red-800 border border-red-200'
+                        }`}>
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium mb-1">{rssTestResult.message}</p>
+                              {rssTestResult.success && rssTestResult.info && (
+                                <div className="text-xs space-y-1">
+                                  <p>📰 标题: {rssTestResult.info.feedInfo.title}</p>
+                                  <p>📝 描述: {rssTestResult.info.feedInfo.description?.substring(0, 100)}...</p>
+                                  <p>📊 论文数量: {rssTestResult.info.feedInfo.totalItems}</p>
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => setRssTestResult(null)}
+                              className="ml-2 text-gray-500 hover:text-gray-700"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {rssSources.length === 0 && (
                         <Button
                           variant="outline"
@@ -684,6 +929,14 @@ export default function Home() {
 
                     <div className="flex gap-2">
                       <Button
+                        onClick={previewRss}
+                        disabled={previewing || rssSources.filter(s => s.isActive).length === 0}
+                        variant="outline"
+                        className="flex-1"
+                      >
+                        {previewing ? '🔄 预览中...' : '👀 预览新论文'}
+                      </Button>
+                      <Button
                         onClick={refreshRss}
                         disabled={refreshingRss || rssSources.filter(s => s.isActive).length === 0}
                         className="flex-1"
@@ -691,6 +944,111 @@ export default function Home() {
                         {refreshingRss ? '🔄 刷新中...' : '🔄 刷新所有RSS'}
                       </Button>
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 预览论文面板 */}
+            {showPreview && (
+              <Card className="mb-8 border-2 border-purple-200">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>📑 预览新论文</CardTitle>
+                      <CardDescription>选择要添加的论文 ({selectedPreviewPapers.size} / {previewPapers.length})</CardDescription>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setShowPreview(false);
+                        setPreviewPapers([]);
+                        setSelectedPreviewPapers(new Set());
+                      }}
+                    >
+                      ✕ 关闭
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {/* 全选和批量操作 */}
+                    <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedPreviewPapers.size === previewPapers.length}
+                          onChange={toggleSelectAllPreview}
+                          className="w-4 h-4"
+                        />
+                        <span className="text-sm font-medium">
+                          {selectedPreviewPapers.size === previewPapers.length ? '取消全选' : '全选'}
+                        </span>
+                      </div>
+                      <Button
+                        onClick={addSelectedPapers}
+                        disabled={selectedPreviewPapers.size === 0}
+                        size="sm"
+                      >
+                        ✅ 添加选中的 ({selectedPreviewPapers.size})
+                      </Button>
+                    </div>
+
+                    {/* 论文列表 */}
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {previewPapers.map((paper, index) => (
+                        <div
+                          key={index}
+                          className={`p-4 border rounded-lg transition-colors ${
+                            selectedPreviewPapers.has(index)
+                              ? 'bg-purple-50 border-purple-300'
+                              : 'bg-white hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedPreviewPapers.has(index)}
+                              onChange={() => togglePreviewPaper(index)}
+                              className="w-4 h-4 mt-1"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-medium mb-1 line-clamp-2">{paper.title}</h4>
+                              <p className="text-xs text-gray-600 mb-1">👤 {paper.authors}</p>
+                              <p className="text-xs text-gray-500 line-clamp-2">
+                                {paper.abstract || '暂无摘要'}
+                              </p>
+                              <div className="flex items-center gap-2 mt-2">
+                                <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                                  {paper.sourceName}
+                                </span>
+                                {paper.pubDate && (
+                                  <span className="text-xs text-gray-400">
+                                    {new Date(paper.pubDate).toLocaleDateString()}
+                                  </span>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={fetchingAbstracts.has(index)}
+                                  onClick={() => fetchAbstractForPaper(index)}
+                                  className="text-xs h-7"
+                                >
+                                  {fetchingAbstracts.has(index) ? '获取中...' : '📥 获取摘要'}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {previewPapers.length === 0 && (
+                      <div className="text-center text-gray-500 py-8">
+                        没有找到新论文
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

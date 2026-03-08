@@ -2,38 +2,94 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import Parser from 'rss-parser';
 
-// AI摘要生成函数（直接内联调用）
-async function generateAISummary(abstract: string): Promise<string | null> {
+// Semantic Scholar API 获取论文信息
+async function getPaperInfoFromSemanticScholar(title: string): Promise<{
+  abstract?: string;
+  authors?: string;
+} | null> {
   try {
-    // 这里直接调用 OpenAI SDK，不通过 API 路由
-    const OpenAI = require('openai');
-    const client = new OpenAI({
-      apiKey: process.env.GLM_API_KEY,
-      baseURL: process.env.OPENAI_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4',
+    // 清理标题：移除 HTML 标签和多余空白
+    const cleanTitle = title
+      .replace(/<[^>]*>/g, '') // 移除 HTML 标签
+      .replace(/\s+/g, ' ')     // 合并空白
+      .trim();
+
+    if (!cleanTitle || cleanTitle.length < 5) {
+      console.log(`    ⚠️ 标题太短，跳过 Semantic Scholar 查询`);
+      return null;
+    }
+
+    // 构建查询 URL
+    const params = new URLSearchParams({
+      query: cleanTitle,
+      fields: 'paperId,title,abstract,authors',
+      limit: '1',
     });
 
-    const response = await client.chat.completions.create({
-      model: 'glm-4-flash',
-      messages: [
-        {
-          role: 'system',
-          content: '你是一个专业的论文助手，能够用简洁明了的语言总结学术论文的核心内容。',
-        },
-        {
-          role: 'user',
-          content: `请用中文总结以下论文摘要，突出核心贡献和要点（2-3句话）：\n\n${abstract}`,
-        },
-      ],
-      temperature: 0.7,
-      max_tokens: 500,
+    const url = `https://api.semanticscholar.org/graph/v1/paper/search?${params.toString()}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Paper-Management-System/1.0', // 添加 User-Agent
+      },
     });
 
-    const summary = response.choices[0]?.message?.content?.trim();
-    return summary || null;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log(`    ⚠️ Semantic Scholar API 调用失败: ${response.status} - ${errorText.substring(0, 100)}`);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (data.data && data.data.length > 0) {
+      const paper = data.data[0];
+
+      // 检查标题匹配度（简单检查）
+      const titleSimilarity = calculateTitleSimilarity(cleanTitle, paper.title);
+      if (titleSimilarity < 0.7) {
+        console.log(`    ⚠️ 标题匹配度过低 (${(titleSimilarity * 100).toFixed(1)}%)，跳过`);
+        return null;
+      }
+
+      // 提取作者信息
+      const authors = paper.authors?.map((a: any) => a.name).join(', ') || '';
+
+      console.log(`    ✅ 从 Semantic Scholar 获取到摘要 (匹配度: ${(titleSimilarity * 100).toFixed(1)}%)`);
+
+      return {
+        abstract: paper.abstract || undefined,
+        authors: authors || undefined,
+      };
+    }
+
+    console.log(`    ⚠️ Semantic Scholar 未找到匹配的论文`);
+    return null;
   } catch (error) {
-    console.error('生成AI摘要失败:', error);
+    console.error('Semantic Scholar API 调用异常:', error);
     return null;
   }
+}
+
+// 计算标题相似度（简单的字符串相似度）
+function calculateTitleSimilarity(title1: string, title2: string): number {
+  const t1 = title1.toLowerCase().trim();
+  const t2 = title2.toLowerCase().trim();
+
+  if (t1 === t2) return 1.0;
+
+  // 简单的包含关系检查
+  if (t1.includes(t2) || t2.includes(t1)) {
+    return 0.8;
+  }
+
+  // 计算单词重叠度
+  const words1 = t1.split(/\s+/);
+  const words2 = t2.split(/\s+/);
+  const intersection = words1.filter((w: string) => words2.includes(w));
+
+  return (2 * intersection.length) / (words1.length + words2.length);
 }
 
 export async function POST(request: Request) {
@@ -104,41 +160,55 @@ export async function POST(request: Request) {
               continue;
             }
 
-            // 检查是否是 Elsevier RSS
+            // 检查是否是 Elsevier RSS（通过名称、URL 或 sciencedirect 域名）
             const isElsevier = source.name.toLowerCase().includes('elsevier') ||
-                              source.url.toLowerCase().includes('elsevier');
+                              source.url.toLowerCase().includes('elsevier') ||
+                              source.url.toLowerCase().includes('sciencedirect');
 
-            // 清理摘要（针对 Elsevier 进行特殊处理）
-            const abstract = isElsevier
-              ? cleanElsevierAbstract(item.content || item.contentSnippet || item['description'] || '')
-              : cleanAbstract(item.contentSnippet || item.content || '');
+            // 对于 Elsevier，先尝试从 content 提取作者，如果没有则使用默认方法
+            let authors = extractAuthors(item);
+            let abstract = '';
+
+            if (isElsevier) {
+              // 从 content 中提取作者信息
+              const extractedAuthors = extractAuthorsFromContent(item.content || '');
+              if (extractedAuthors) {
+                authors = extractedAuthors;
+              } else {
+                console.log(`    ⚠️ 未能从 content 提取作者，使用默认方法`);
+              }
+
+              // 尝试通过 Semantic Scholar API 获取摘要（优先级更高）
+              console.log(`    🔍 尝试从 Semantic Scholar 获取摘要...`);
+              const semanticInfo = await getPaperInfoFromSemanticScholar(item.title || '');
+
+              if (semanticInfo?.abstract) {
+                abstract = semanticInfo.abstract;
+                if (semanticInfo.authors && !extractedAuthors) {
+                  // 如果从 content 没有提取到作者，使用 Semantic Scholar 的作者
+                  authors = semanticInfo.authors;
+                }
+                console.log(`    ✅ 从 Semantic Scholar 获取到摘要`);
+              } else {
+                // 如果 Semantic Scholar 没有找到，使用 RSS 中的摘要
+                console.log(`    ⚠️ Semantic Scholar 未找到，使用 RSS 摘要`);
+                abstract = cleanElsevierAbstract(item['description'] || item.content || item.contentSnippet || '');
+              }
+            } else {
+              // 非 Elsevier 论文，使用默认清理方法
+              abstract = cleanAbstract(item.contentSnippet || item.content || '');
+            }
 
             // 保存论文
             const paper = await prisma.paper.create({
               data: {
                 title: item.title || 'Unknown Title',
-                authors: extractAuthors(item),
+                authors: authors,
                 abstract: abstract,
                 arxivId: arxivId,
                 pdfUrl: pdfUrl,
               },
             });
-
-            // 如果是 Elsevier 论文且有摘要，自动生成 AI 摘要
-            if (isElsevier && abstract && abstract.length > 50) {
-              try {
-                const aiSummary = await generateAISummary(abstract);
-                if (aiSummary) {
-                  await prisma.paper.update({
-                    where: { id: paper.id },
-                    data: { tldr: aiSummary },
-                  });
-                  console.log(`    🤖 AI摘要已生成`);
-                }
-              } catch (error) {
-                console.log(`    ⚠️ AI摘要生成失败，继续处理`);
-              }
-            }
 
             sourceAdded++;
             totalAdded++;
@@ -197,6 +267,74 @@ function extractAuthors(item: any): string {
   if (item.creator) return item.creator;
   if (item['dc:creator']) return item['dc:creator'];
   return 'Unknown';
+}
+
+// 从 Elsevier 的 content 中提取作者信息
+function extractAuthorsFromContent(content: string): string | null {
+  if (!content) {
+    console.log(`    ⚠️ content 为空`);
+    return null;
+  }
+
+  try {
+    // 解码 HTML 实体
+    let decoded = content
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ');
+
+    // 针对 Elsevier 的特定格式：<p>Author(s): ...</p>
+    // 改进：允许多行和更多空白字符
+    const elsevierAuthorPatterns = [
+      /<p>\s*Author\(s\):\s*([^<]+?)\s*<\/p>/i,
+      /<p>Author\(s\):\s*(.*?)<\/p>/i,
+      /Author\(s\):\s*([^<\n]+?)(?:\n|<|$)/i,
+    ];
+
+    for (const pattern of elsevierAuthorPatterns) {
+      const match = decoded.match(pattern);
+      if (match && match[1]) {
+        const authors = match[1].trim();
+        if (authors.length > 0 && authors.length < 500) {
+          console.log(`    ✅ 从 Elsevier content 提取到作者: ${authors}`);
+          return authors;
+        }
+      }
+    }
+
+    // 备用方案：移除 HTML 标签后匹配
+    const textOnly = decoded.replace(/<[^>]*>/g, ' ');
+
+    // 尝试匹配常见的作者模式：
+    const authorPatterns = [
+      /Author\(s\):\s*([^\n\.]+?)(?:\.|Keywords|Abstract|$)/i,
+      /(?:Author|Authors?)[:\s]+([^\n\.]+?)(?:\.|Keywords|Abstract|$)/i,
+      /(?:By|by)\s+([^\n\.]+?)(?:\.|Keywords|Abstract|$)/i,
+    ];
+
+    for (const pattern of authorPatterns) {
+      const match = textOnly.match(pattern);
+      if (match && match[1]) {
+        const authors = match[1].trim();
+        // 清理和验证
+        if (authors.length > 0 && authors.length < 500) {
+          console.log(`    ✅ 通过备用方案提取到作者: ${authors}`);
+          return authors;
+        }
+      }
+    }
+
+    // 调试：输出前 200 个字符帮助排查
+    console.log(`    ⚠️ 未能从 content 提取作者信息`);
+    console.log(`    📝 Content 预览: ${decoded.substring(0, 200)}...`);
+    return null;
+  } catch (error) {
+    console.error('提取作者信息失败:', error);
+    return null;
+  }
 }
 
 // 清理摘要
