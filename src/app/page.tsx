@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Paper {
   id: number;
@@ -13,6 +15,25 @@ interface Paper {
   tldr?: string;
   arxivId?: string;
   pdfUrl?: string;
+  categoryId?: number | null;
+  createdAt: Date;
+}
+
+interface Category {
+  id: number;
+  name: string;
+  color: string;
+  createdAt: Date;
+  _count?: {
+    papers: number;
+  };
+}
+
+interface RssSource {
+  id: number;
+  name: string;
+  url: string;
+  isActive: boolean;
   createdAt: Date;
 }
 
@@ -23,9 +44,49 @@ export default function Home() {
   const [expandedAbstracts, setExpandedAbstracts] = useState<Set<number>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 加载论文列表
+  // 批量选择相关状态
+  const [selectedPapers, setSelectedPapers] = useState<Set<number>>(new Set());
+  const [isAllSelected, setIsAllSelected] = useState(false);
+
+  // 分组相关状态
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryColor, setNewCategoryColor] = useState('#3B82F6');
+
+  // RSS相关状态
+  const [rssSources, setRssSources] = useState<RssSource[]>([]);
+  const [showRssPanel, setShowRssPanel] = useState(false);
+  const [newRssName, setNewRssName] = useState('');
+  const [newRssUrl, setNewRssUrl] = useState('');
+  const [rssKeywords, setRssKeywords] = useState('');
+  const [refreshingRss, setRefreshingRss] = useState(false);
+
+  // Toast状态
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // ConfirmDialog状态
+  const [confirmDialog, setConfirmDialog] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  // 显示Toast的辅助函数
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+  };
+
+  // 显示确认对话框的辅助函数
+  const showConfirm = (message: string, onConfirm: () => void) => {
+    setConfirmDialog({ message, onConfirm });
+  };
+
+  // 加载数据
   useEffect(() => {
     fetchPapers();
+    fetchCategories();
+    fetchRssSources();
   }, []);
 
   const fetchPapers = async () => {
@@ -35,6 +96,26 @@ export default function Home() {
       setPapers(data);
     } catch (error) {
       console.error('加载论文失败：', error);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const res = await fetch('/api/categories');
+      const data = await res.json();
+      setCategories(data);
+    } catch (error) {
+      console.error('加载分组失败：', error);
+    }
+  };
+
+  const fetchRssSources = async () => {
+    try {
+      const res = await fetch('/api/rss/sources');
+      const data = await res.json();
+      setRssSources(data);
+    } catch (error) {
+      console.error('加载RSS源失败：', error);
     }
   };
 
@@ -51,16 +132,191 @@ export default function Home() {
       if (res.ok) {
         setArxivUrl('');
         fetchPapers();
+        fetchCategories(); // 更新分组计数
       } else {
-        alert('添加失败，请检查链接格式');
+        showToast('添加失败，请检查链接格式', 'error');
       }
     } catch (error) {
       console.error('添加论文失败：', error);
-      alert('添加失败');
+      showToast('添加失败', 'error');
     } finally {
       setLoading(false);
     }
   };
+
+  // 删除论文
+  const deletePaper = async (id: number) => {
+    showConfirm('确定要删除这篇论文吗？', async () => {
+      try {
+        const res = await fetch('/api/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paperId: id }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setPapers(papers.filter(p => p.id !== id));
+          fetchCategories(); // 更新分组计数
+          showToast('论文已删除', 'success');
+        } else {
+          showToast('删除失败：' + (data.error || '未知错误'), 'error');
+        }
+      } catch (error) {
+        console.error('删除论文失败：', error);
+        showToast('删除失败', 'error');
+      }
+    });
+  };
+
+  // 批量选择相关函数
+  const toggleSelectPaper = (id: number) => {
+    setSelectedPapers(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedPapers(new Set());
+    } else {
+      setSelectedPapers(new Set(filteredPapers.map(p => p.id)));
+    }
+    setIsAllSelected(!isAllSelected);
+  };
+
+  const batchDeletePapers = async () => {
+    if (selectedPapers.size === 0) {
+      showToast('请先选择要删除的论文', 'error');
+      return;
+    }
+
+    showConfirm(`确定要删除选中的 ${selectedPapers.size} 篇论文吗？`, async () => {
+      try {
+        const res = await fetch('/api/papers/batch-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ paperIds: Array.from(selectedPapers) }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setPapers(papers.filter(p => !selectedPapers.has(p.id)));
+          setSelectedPapers(new Set());
+          setIsAllSelected(false);
+          fetchCategories(); // 更新分组计数
+          showToast(`✅ 已删除 ${data.deletedCount} 篇论文`, 'success');
+        } else {
+          showToast('批量删除失败：' + (data.error || '未知错误'), 'error');
+        }
+      } catch (error) {
+        console.error('批量删除失败：', error);
+        showToast('批量删除失败', 'error');
+      }
+    });
+  };
+
+  // 分组管理函数
+  const addCategory = async () => {
+    if (!newCategoryName) {
+      showToast('请输入分组名称', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newCategoryName, color: newCategoryColor }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        showToast('添加失败：' + data.error, 'error');
+      } else {
+        setNewCategoryName('');
+        fetchCategories();
+        showToast('✅ 分组已创建', 'success');
+      }
+    } catch (error) {
+      console.error('创建分组失败：', error);
+      showToast('创建失败', 'error');
+    }
+  };
+
+  const deleteCategory = async (categoryId: number) => {
+    const category = categories.find(c => c.id === categoryId);
+
+    showConfirm(`确定要删除分组"${category?.name}"吗？论文不会被删除。`, async () => {
+      try {
+        const res = await fetch('/api/categories/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categoryId }),
+        });
+        if (res.ok) {
+          fetchCategories();
+          fetchPapers();
+          showToast('✅ 分组已删除', 'success');
+        }
+      } catch (error) {
+        console.error('删除分组失败：', error);
+        showToast('删除失败', 'error');
+      }
+    });
+  };
+
+  const assignCategoryToPapers = async (categoryId: number | null) => {
+    if (selectedPapers.size === 0) {
+      showToast('请先选择要分组的论文', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/papers/assign-category', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          paperIds: Array.from(selectedPapers),
+          categoryId,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchPapers();
+        fetchCategories();
+        setSelectedPapers(new Set());
+        setIsAllSelected(false);
+        showToast(`✅ 已将 ${data.updatedCount} 篇论文分配到分组`, 'success');
+      } else {
+        showToast('分配失败：' + (data.error || '未知错误'), 'error');
+      }
+    } catch (error) {
+      console.error('分配分组失败：', error);
+      showToast('分配失败', 'error');
+    }
+  };
+
+  // 过滤论文
+  const filteredPapers = papers.filter(paper => {
+    // 分类过滤
+    if (selectedCategory !== null && paper.categoryId !== selectedCategory) {
+      return false;
+    }
+
+    // 搜索过滤
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      paper.title.toLowerCase().includes(query) ||
+      (paper.authors && paper.authors.toLowerCase().includes(query)) ||
+      (paper.abstract && paper.abstract.toLowerCase().includes(query)) ||
+      (paper.tldr && paper.tldr.toLowerCase().includes(query))
+    );
+  });
 
   // 切换摘要展开/折叠
   const toggleAbstract = (id: number) => {
@@ -75,41 +331,6 @@ export default function Home() {
     });
   };
 
-  // 删除论文
-  const deletePaper = async (id: number) => {
-    if (!confirm('确定要删除这篇论文吗？')) return;
-
-    try {
-      const res = await fetch('/api/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paperId: id }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setPapers(papers.filter(p => p.id !== id));
-        alert('✅ 论文已删除');
-      } else {
-        alert('删除失败：' + (data.error || '未知错误'));
-      }
-    } catch (error) {
-      console.error('删除论文失败：', error);
-      alert('删除失败');
-    }
-  };
-
-  // 过滤论文
-  const filteredPapers = papers.filter(paper => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      paper.title.toLowerCase().includes(query) ||
-      (paper.authors && paper.authors.toLowerCase().includes(query)) ||
-      (paper.abstract && paper.abstract.toLowerCase().includes(query)) ||
-      (paper.tldr && paper.tldr.toLowerCase().includes(query))
-    );
-  });
-
   // 生成AI摘要
   const generateSummary = async (id: number, abstract: string) => {
     try {
@@ -121,151 +342,530 @@ export default function Home() {
       const data = await res.json();
       if (data.summary) {
         setPapers(papers.map(p => p.id === id ? { ...p, tldr: data.summary } : p));
-        alert('✅ 摘要已生成并保存！');
+        showToast('✅ 摘要已生成并保存！', 'success');
       } else {
-        alert('生成摘要失败：' + (data.error || '未知错误'));
+        showToast('生成摘要失败：' + (data.error || '未知错误'), 'error');
       }
     } catch (error) {
       console.error('生成摘要失败：', error);
-      alert('生成摘要失败');
+      showToast('生成摘要失败', 'error');
+    }
+  };
+
+  // RSS相关函数
+  const addRssSource = async () => {
+    if (!newRssName || !newRssUrl) {
+      showToast('请填写RSS源名称和URL', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/rss/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newRssName, url: newRssUrl }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        showToast('添加失败：' + data.error, 'error');
+      } else {
+        setNewRssName('');
+        setNewRssUrl('');
+        fetchRssSources();
+        showToast('✅ RSS源已添加', 'success');
+      }
+    } catch (error) {
+      console.error('添加RSS源失败：', error);
+      showToast('添加失败', 'error');
+    }
+  };
+
+  const deleteRssSource = async (sourceId: number) => {
+    showConfirm('确定要删除这个RSS源吗？', async () => {
+      try {
+        const res = await fetch('/api/rss/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceId }),
+        });
+        if (res.ok) {
+          fetchRssSources();
+          showToast('✅ RSS源已删除', 'success');
+        }
+      } catch (error) {
+        console.error('删除RSS源失败：', error);
+        showToast('删除失败', 'error');
+      }
+    });
+  };
+
+  const refreshRss = async () => {
+    setRefreshingRss(true);
+    try {
+      const res = await fetch('/api/rss/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceIds: rssSources.filter(s => s.isActive).map(s => s.id),
+          keywords: rssKeywords,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchPapers();
+        fetchCategories();
+        showToast(`✅ 刷新成功！添加 ${data.totalAdded} 篇论文`, 'success');
+      } else {
+        showToast('刷新失败：' + (data.error || '未知错误'), 'error');
+      }
+    } catch (error) {
+      console.error('刷新RSS失败：', error);
+      showToast('刷新失败', 'error');
+    } finally {
+      setRefreshingRss(false);
+    }
+  };
+
+  const initRssSources = async () => {
+    try {
+      const res = await fetch('/api/rss/init', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        fetchRssSources();
+        showToast(`✅ ${data.message}`, 'success');
+      }
+    } catch (error) {
+      console.error('初始化RSS源失败：', error);
+      showToast('初始化失败', 'error');
     }
   };
 
   return (
-    <main className="min-h-screen p-8 bg-gray-50">
-      <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8">📚 个人论文助手</h1>
+    <main className="min-h-screen bg-gray-50">
+      <div className="flex">
+        {/* 左侧边栏 */}
+        <aside className="w-64 bg-white border-r p-4 sticky top-0 h-screen overflow-y-auto">
+          <h1 className="text-xl font-bold mb-6">📚 论文助手</h1>
 
-        {/* 搜索框 */}
-        <Card className="mb-4">
-          <CardContent className="pt-6">
-            <div className="flex gap-2 items-center">
-              <span className="text-sm font-medium">🔍</span>
-              <Input
-                placeholder="搜索标题、作者、摘要..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="flex-1"
-              />
-              {searchQuery && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSearchQuery('')}
-                >
-                  清除
-                </Button>
-              )}
-            </div>
-            {searchQuery && (
-              <p className="text-xs text-gray-500 mt-2">
-                找到 {filteredPapers.length} 篇论文
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* 添加论文表单 */}
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>添加论文</CardTitle>
-            <CardDescription>粘贴arXiv链接自动获取论文信息</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2">
-              <Input
-                placeholder="https://arxiv.org/abs/2301.07001"
-                value={arxivUrl}
-                onChange={(e) => setArxivUrl(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addPaper()}
-              />
-              <Button onClick={addPaper} disabled={loading}>
-                {loading ? '添加中...' : '添加'}
+          {/* 分组列表 */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold">📁 分组</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAddCategory(!showAddCategory)}
+                className="text-xs"
+              >
+                + 新建
               </Button>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* 论文列表 */}
-        <div className="space-y-4">
-          {filteredPapers.map((paper) => (
-            <Card key={paper.id}>
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <CardTitle className="text-lg">{paper.title}</CardTitle>
-                    <CardDescription>{paper.authors}</CardDescription>
-                  </div>
+            {showAddCategory && (
+              <div className="mb-3 p-3 bg-gray-50 rounded space-y-2">
+                <Input
+                  placeholder="分组名称"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  className="text-sm"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="color"
+                    value={newCategoryColor}
+                    onChange={(e) => setNewCategoryColor(e.target.value)}
+                    className="w-10 h-8 rounded cursor-pointer"
+                  />
                   <Button
-                    variant="ghost"
                     size="sm"
-                    onClick={() => deletePaper(paper.id)}
-                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    onClick={addCategory}
+                    className="flex-1"
                   >
-                    删除
+                    创建
                   </Button>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-medium">📄 原始摘要：</p>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <button
+                onClick={() => setSelectedCategory(null)}
+                className={`w-full text-left px-3 py-2 rounded text-sm flex items-center justify-between ${
+                  selectedCategory === null ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
+                }`}
+              >
+                <span>📄 全部论文</span>
+                <span className="text-xs text-gray-500">{papers.length}</span>
+              </button>
+
+              {categories.map((category) => (
+                <div key={category.id} className="group">
+                  <button
+                    onClick={() => setSelectedCategory(category.id)}
+                    className={`w-full text-left px-3 py-2 rounded text-sm flex items-center justify-between ${
+                      selectedCategory === category.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: category.color }}
+                      />
+                      {category.name}
+                    </span>
+                    <span className="text-xs text-gray-500">{category._count?.papers || 0}</span>
+                  </button>
+                  <button
+                    onClick={() => deleteCategory(category.id)}
+                    className="hidden group-hover:block absolute right-2 text-xs text-red-500 hover:text-red-700"
+                    style={{ marginTop: '-24px', marginRight: '8px' }}
+                  >
+                    删除
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 批量操作 */}
+          {selectedPapers.size > 0 && (
+            <div className="mb-6 p-3 bg-blue-50 rounded">
+              <p className="text-xs font-medium mb-2">已选 {selectedPapers.size} 篇</p>
+              <div className="space-y-1">
+                <p className="text-xs text-gray-600 mb-1">分配到分组：</p>
+                <button
+                  onClick={() => assignCategoryToPapers(null)}
+                  className="w-full text-left px-2 py-1 text-xs hover:bg-blue-100 rounded"
+                >
+                  移除分组
+                </button>
+                {categories.map((category) => (
+                  <button
+                    key={category.id}
+                    onClick={() => assignCategoryToPapers(category.id)}
+                    className="w-full text-left px-2 py-1 text-xs hover:bg-blue-100 rounded flex items-center gap-2"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: category.color }}
+                    />
+                    {category.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
+
+        {/* 主内容区 */}
+        <div className="flex-1 p-8">
+          <div className="max-w-5xl mx-auto">
+            {/* 搜索和RSS按钮 */}
+            <Card className="mb-4 sticky top-0 z-10">
+              <CardContent className="pt-6">
+                <div className="flex gap-2 items-center">
+                  <span className="text-sm font-medium">🔍</span>
+                  <Input
+                    placeholder="搜索标题、作者、摘要..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="flex-1"
+                  />
+                  {searchQuery && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => toggleAbstract(paper.id)}
-                      className="h-6 text-xs"
+                      onClick={() => setSearchQuery('')}
                     >
-                      {expandedAbstracts.has(paper.id) ? '收起' : '展开'}
+                      清除
                     </Button>
-                  </div>
-                  {expandedAbstracts.has(paper.id) ? (
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">
-                      {paper.abstract}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-gray-700 line-clamp-3">
-                      {paper.abstract}
-                    </p>
                   )}
-                </div>
-
-                {paper.tldr ? (
-                  <div className="bg-blue-50 p-4 rounded-lg mb-4">
-                    <p className="text-sm font-medium mb-2">🤖 AI摘要：</p>
-                    <p className="text-sm">{paper.tldr}</p>
-                  </div>
-                ) : (
                   <Button
-                    onClick={() => generateSummary(paper.id, paper.abstract || '')}
                     variant="outline"
                     size="sm"
+                    onClick={() => setShowRssPanel(!showRssPanel)}
                   >
-                    生成AI摘要
+                    {showRssPanel ? '隐藏RSS' : '📰 RSS'}
                   </Button>
-                )}
-
-                {paper.pdfUrl && (
-                  <a
-                    href={paper.pdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="ml-2"
-                  >
-                    <Button variant="link" size="sm">查看PDF</Button>
-                  </a>
+                </div>
+                {searchQuery && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    找到 {filteredPapers.length} 篇论文
+                  </p>
                 )}
               </CardContent>
             </Card>
-          ))}
-        </div>
 
-        {filteredPapers.length === 0 && (
-          <div className="text-center text-gray-500 py-12">
-            {searchQuery ? '没有找到匹配的论文' : '还没有论文，快添加第一篇吧！'}
+            {/* RSS管理面板 */}
+            {showRssPanel && (
+              <Card className="mb-8 border-2 border-blue-200">
+                <CardHeader>
+                  <CardTitle>📰 RSS订阅管理</CardTitle>
+                  <CardDescription>订阅arXiv等RSS源，自动获取最新论文</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-sm font-medium mb-3">添加RSS源</h3>
+                      <div className="flex gap-2 mb-2">
+                        <Input
+                          placeholder="RSS源名称（如：arXiv AI）"
+                          value={newRssName}
+                          onChange={(e) => setNewRssName(e.target.value)}
+                          className="flex-1"
+                        />
+                        <Input
+                          placeholder="RSS URL（如：https://export.arxiv.org/rss/cs.AI）"
+                          value={newRssUrl}
+                          onChange={(e) => setNewRssUrl(e.target.value)}
+                          className="flex-1"
+                        />
+                        <Button onClick={addRssSource}>添加</Button>
+                      </div>
+                      {rssSources.length === 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={initRssSources}
+                          className="text-xs"
+                        >
+                          🎯 加载预设RSS源
+                        </Button>
+                      )}
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-medium mb-3">关键词筛选（可选）</h3>
+                      <Input
+                        placeholder="输入关键词，用逗号分隔"
+                        value={rssKeywords}
+                        onChange={(e) => setRssKeywords(e.target.value)}
+                      />
+                    </div>
+
+                    {rssSources.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-medium mb-3">已订阅的RSS源</h3>
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {rssSources.map((source) => (
+                            <div
+                              key={source.id}
+                              className="flex items-center justify-between p-3 bg-white rounded border"
+                            >
+                              <div className="flex items-center gap-2 flex-1">
+                                <input
+                                  type="checkbox"
+                                  checked={source.isActive}
+                                  onChange={() => {
+                                    setRssSources(rssSources.map(s =>
+                                      s.id === source.id ? { ...s, isActive: !s.isActive } : s
+                                    ));
+                                  }}
+                                  className="w-4 h-4"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">{source.name}</p>
+                                  <p className="text-xs text-gray-500 truncate">{source.url}</p>
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deleteRssSource(source.id)}
+                                className="text-red-500 hover:text-red-700"
+                              >
+                                删除
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={refreshRss}
+                        disabled={refreshingRss || rssSources.filter(s => s.isActive).length === 0}
+                        className="flex-1"
+                      >
+                        {refreshingRss ? '🔄 刷新中...' : '🔄 刷新所有RSS'}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 手动添加论文 */}
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle>➕ 手动添加论文</CardTitle>
+                <CardDescription>粘贴arXiv链接自动获取论文信息</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="https://arxiv.org/abs/2301.07001"
+                    value={arxivUrl}
+                    onChange={(e) => setArxivUrl(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addPaper()}
+                  />
+                  <Button onClick={addPaper} disabled={loading}>
+                    {loading ? '添加中...' : '添加'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 论文列表 */}
+            {filteredPapers.length > 0 && (
+              <div className="mb-4 flex items-center justify-between bg-white p-3 rounded-lg border">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={toggleSelectAll}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm">
+                    {selectedPapers.size > 0
+                      ? `已选择 ${selectedPapers.size} 篇论文`
+                      : `全选 (${filteredPapers.length} 篇)`}
+                  </span>
+                </div>
+                {selectedPapers.size > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={batchDeletePapers}
+                  >
+                    🗑️ 批量删除 ({selectedPapers.size})
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {filteredPapers.map((paper) => {
+                const category = categories.find(c => c.id === paper.categoryId);
+                return (
+                  <Card key={paper.id} className={selectedPapers.has(paper.id) ? 'ring-2 ring-blue-500' : ''}>
+                    <CardHeader>
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedPapers.has(paper.id)}
+                          onChange={() => toggleSelectPaper(paper.id)}
+                          className="w-4 h-4 mt-1"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <CardTitle className="text-lg">{paper.title}</CardTitle>
+                            {category && (
+                              <span
+                                className="text-xs px-2 py-1 rounded text-white"
+                                style={{ backgroundColor: category.color }}
+                              >
+                                {category.name}
+                              </span>
+                            )}
+                          </div>
+                          <CardDescription>{paper.authors}</CardDescription>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deletePaper(paper.id)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-medium">📄 原始摘要：</p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleAbstract(paper.id)}
+                            className="h-6 text-xs"
+                          >
+                            {expandedAbstracts.has(paper.id) ? '收起' : '展开'}
+                          </Button>
+                        </div>
+                        {expandedAbstracts.has(paper.id) ? (
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                            {paper.abstract}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-gray-700 line-clamp-3">
+                            {paper.abstract}
+                          </p>
+                        )}
+                      </div>
+
+                      {paper.tldr ? (
+                        <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                          <p className="text-sm font-medium mb-2">🤖 AI摘要：</p>
+                          <p className="text-sm">{paper.tldr}</p>
+                        </div>
+                      ) : (
+                        <Button
+                          onClick={() => generateSummary(paper.id, paper.abstract || '')}
+                          variant="outline"
+                          size="sm"
+                        >
+                          生成AI摘要
+                        </Button>
+                      )}
+
+                      {paper.pdfUrl && (
+                        <a
+                          href={paper.pdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2"
+                        >
+                          <Button variant="link" size="sm">查看PDF</Button>
+                        </a>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {filteredPapers.length === 0 && (
+              <div className="text-center text-gray-500 py-12">
+                {searchQuery ? '没有找到匹配的论文' : '还没有论文，快添加第一篇吧！'}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
+
+      {/* Toast组件 */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
+      {/* ConfirmDialog组件 */}
+      {confirmDialog && (
+        <ConfirmDialog
+          message={confirmDialog.message}
+          onConfirm={() => {
+            confirmDialog.onConfirm();
+            setConfirmDialog(null);
+          }}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
     </main>
   );
 }

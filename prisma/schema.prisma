@@ -17,5 +17,23 @@ model Paper {
   tldr        String?
   arxivId     String?  @unique
   pdfUrl      String?
+  categoryId  Int?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+}
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  color       String   @default("#3B82F6")
+  createdAt   DateTime @default(now())
+  papers      Paper[]
+}
+
+model RssSource {
+  id          Int      @id @default(autoincrement())
+  name        String
+  url         String   @unique
+  isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 }

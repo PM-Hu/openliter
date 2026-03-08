@@ -10,7 +10,7 @@ export async function POST(request: Request) {
       where: { id: paperId },
     });
 
-    console.log(`✅ 论文已删除 (ID: ${paperId})`);
+    console.log(`论文已删除 (ID: ${paperId})`);
 
     return NextResponse.json({ success: true, paperId });
   } catch (error: any) {
