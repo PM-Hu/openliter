@@ -1,0 +1,21 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Paper {
+  id          Int      @id @default(autoincrement())
+  title       String
+  authors     String?
+  abstract    String?
+  tldr        String?
+  arxivId     String?  @unique
+  pdfUrl      String?
+  createdAt   DateTime @default(now())
+}
