@@ -86,6 +86,14 @@ export default function Home() {
     papers: any[];
   } | null>(null);
 
+  // AI摘要相关状态
+  const [summaryKeyword, setSummaryKeyword] = useState('');
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [selectedPaperForSummary, setSelectedPaperForSummary] = useState<any | null>(null);
+
+  // 页面导航状态
+  const [currentPage, setCurrentPage] = useState<'home' | 'briefing' | 'summary' | 'repository'>('home');
+
   // Toast状态
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -689,10 +697,177 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <div className="flex">
-        {/* 左侧边栏 */}
-        <aside className="w-64 bg-white border-r p-4 sticky top-0 h-screen overflow-y-auto">
-          <h1 className="text-xl font-bold mb-6">📚 论文助手</h1>
+      {/* 顶部导航栏 */}
+      <nav className="bg-white border-b sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-8">
+              <h1 className="text-xl font-bold">📚 论文助手</h1>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setCurrentPage('home')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    currentPage === 'home'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  🏠 首页
+                </button>
+                <button
+                  onClick={() => setCurrentPage('briefing')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    currentPage === 'briefing'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  🤖 AI简报
+                </button>
+                <button
+                  onClick={() => setCurrentPage('summary')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    currentPage === 'summary'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  ✨ AI摘要
+                </button>
+                <button
+                  onClick={() => setCurrentPage('repository')}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    currentPage === 'repository'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  📖 文献仓库
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      {/* 根据当前页面显示不同内容 */}
+      {currentPage === 'home' && (
+        <div className="max-w-6xl mx-auto p-8">
+          {/* 欢迎区域 */}
+          <div className="mb-12">
+            <h2 className="text-3xl font-bold mb-4">欢迎使用论文助手 🎓</h2>
+            <p className="text-gray-600 text-lg">
+              智能科研助手，帮您快速获取、管理和分析学术论文
+            </p>
+          </div>
+
+          {/* 功能入口卡片 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+            <Card
+              className="cursor-pointer hover:shadow-xl transition-all hover:-translate-y-1 border-2 hover:border-blue-400"
+              onClick={() => setCurrentPage('briefing')}
+            >
+              <CardHeader>
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+                  <span className="text-2xl">🤖</span>
+                </div>
+                <CardTitle className="text-xl">AI研究简报</CardTitle>
+                <CardDescription>
+                  基于关键词智能分析多篇论文，生成结构化研究简报
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm text-gray-600 space-y-2">
+                  <li>• 智能论文匹配</li>
+                  <li>• 研究趋势分析</li>
+                  <li>• 关键发现提取</li>
+                  <li>• 推荐阅读建议</li>
+                </ul>
+              </CardContent>
+            </Card>
+
+            <Card
+              className="cursor-pointer hover:shadow-xl transition-all hover:-translate-y-1 border-2 hover:border-purple-400"
+              onClick={() => setCurrentPage('summary')}
+            >
+              <CardHeader>
+                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+                  <span className="text-2xl">✨</span>
+                </div>
+                <CardTitle className="text-xl">AI论文摘要</CardTitle>
+                <CardDescription>
+                  为单篇论文生成AI摘要，快速理解核心内容
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm text-gray-600 space-y-2">
+                  <li>• 智能摘要生成</li>
+                  <li>• 核心观点提取</li>
+                  <li>• 研究方法分析</li>
+                  <li>• 快速文献筛选</li>
+                </ul>
+              </CardContent>
+            </Card>
+
+            <Card
+              className="cursor-pointer hover:shadow-xl transition-all hover:-translate-y-1 border-2 hover:border-green-400"
+              onClick={() => setCurrentPage('repository')}
+            >
+              <CardHeader>
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
+                  <span className="text-2xl">📖</span>
+                </div>
+                <CardTitle className="text-xl">文献仓库</CardTitle>
+                <CardDescription>
+                  管理您的论文库，支持搜索、分组和批量操作
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm text-gray-600 space-y-2">
+                  <li>• 论文搜索筛选</li>
+                  <li>• 分组管理</li>
+                  <li>• 批量操作</li>
+                  <li>• RSS订阅</li>
+                </ul>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* 统计信息 */}
+          <div className="grid grid-cols-3 gap-6">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-blue-600">{papers.length}</p>
+                  <p className="text-sm text-gray-600 mt-2">已收集论文</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-purple-600">{categories.length}</p>
+                  <p className="text-sm text-gray-600 mt-2">分组数量</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-green-600">{rssSources.filter(s => s.isActive).length}</p>
+                  <p className="text-sm text-gray-600 mt-2">RSS订阅</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {currentPage === 'repository' && (
+        <div className="flex">
+          {/* 左侧边栏 */}
+          <aside className="w-64 bg-white border-r p-4 sticky top-0 h-screen overflow-y-auto">
+            <h1 className="text-xl font-bold mb-6">📁 分组管理</h1>
 
           {/* 分组列表 */}
           <div className="mb-6">
@@ -827,13 +1002,6 @@ export default function Home() {
                       清除
                     </Button>
                   )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowAddRssDialog(true)}
-                  >
-                    📰 添加RSS
-                  </Button>
                 </div>
                 {searchQuery && (
                   <p className="text-xs text-gray-500 mt-2">
@@ -1096,144 +1264,254 @@ export default function Home() {
             )}
           </div>
         </div>
+      </div>
+      )}
 
-        {/* 右侧RSS边栏 */}
-        <aside className="w-80 bg-white border-l p-4 sticky top-0 h-screen overflow-y-auto">
-          <h2 className="text-lg font-bold mb-4">📰 RSS订阅</h2>
-
-          {rssSources.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-sm text-gray-500 mb-4">还没有RSS订阅</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAddRssDialog(true)}
-              >
-                添加RSS源
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {rssSources.map((source) => (
-                <div
-                  key={source.id}
-                  onClick={() => toggleRssSource(source.id)}
-                  className={`p-3 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                    source.isActive
-                      ? 'bg-blue-50 border-blue-300'
-                      : 'bg-gray-50 border-gray-200'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <h3 className={`text-sm font-medium truncate ${
-                        source.isActive ? 'text-blue-900' : 'text-gray-600'
-                      }`}>{source.name}</h3>
-                      <p className="text-xs text-gray-500 truncate">{source.url}</p>
-                    </div>
-                    <div className="flex items-center gap-1 ml-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${
-                        source.isActive
-                          ? 'bg-blue-500 text-white'
-                          : 'bg-gray-300 text-gray-500'
-                      }`}>
-                        {source.isActive ? '✓' : '○'}
-                      </div>
+      {/* AI简报页面 */}
+      {currentPage === 'briefing' && (
+        <div className="max-w-6xl mx-auto p-8 space-y-6">
+          {/* RSS订阅管理 */}
+          <Card>
+            <CardHeader>
+              <CardTitle>📰 RSS订阅管理</CardTitle>
+              <CardDescription>订阅学术期刊RSS源，收集最新论文</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* RSS源列表 */}
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">已订阅源</h3>
+                  {rssSources.length === 0 ? (
+                    <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                      <p className="text-sm text-gray-500 mb-4">还没有RSS订阅</p>
                       <Button
-                        variant="ghost"
+                        variant="outline"
                         size="sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteRssSource(source.id);
-                        }}
-                        className="text-red-500 hover:text-red-700 p-1 h-auto"
+                        onClick={() => setShowAddRssDialog(true)}
                       >
-                        <X size={14} />
+                        ➕ 添加第一个RSS源
                       </Button>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {rssSources.map((source) => (
+                        <div
+                          key={source.id}
+                          onClick={() => toggleRssSource(source.id)}
+                          className={`p-3 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
+                            source.isActive
+                              ? 'bg-blue-50 border-blue-300'
+                              : 'bg-gray-50 border-gray-200'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
+                                  source.isActive
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-300 text-gray-500'
+                                }`}>
+                                  {source.isActive ? '✓' : '○'}
+                                </div>
+                                <h3 className={`text-sm font-medium ${
+                                  source.isActive ? 'text-blue-900' : 'text-gray-600'
+                                }`}>{source.name}</h3>
+                              </div>
+                              <p className="text-xs text-gray-500 truncate">{source.url}</p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteRssSource(source.id);
+                              }}
+                              className="text-red-500 hover:text-red-700 p-1 h-auto ml-2"
+                            >
+                              <X size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowAddRssDialog(true)}
+                        className="w-full mt-3"
+                      >
+                        + 添加RSS源
+                      </Button>
+                    </div>
+                  )}
                 </div>
-              ))}
 
-              <div className="pt-3 border-t">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowAddRssDialog(true)}
-                  className="w-full"
-                >
-                  + 添加RSS源
-                </Button>
+                {/* 快速操作 */}
+                {rssSources.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3">快速操作</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">关键词筛选</label>
+                        <Input
+                          placeholder="用逗号分隔多个关键词"
+                          value={rssKeywords}
+                          onChange={(e) => setRssKeywords(e.target.value)}
+                          className="text-sm"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={previewRss}
+                          disabled={previewing || rssSources.filter(s => s.isActive).length === 0}
+                        >
+                          {previewing ? '🔄 预览中...' : '👀 预览新论文'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={refreshRss}
+                          disabled={refreshingRss || rssSources.filter(s => s.isActive).length === 0}
+                        >
+                          {refreshingRss ? '🔄 刷新中...' : '🔄 刷新RSS'}
+                        </Button>
+                      </div>
+                      {showPreview && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setCurrentPage('repository');
+                            setTimeout(() => {
+                              window.scrollTo({ top: 0, behavior: 'smooth' });
+                            }, 100);
+                          }}
+                          className="w-full"
+                        >
+                          前往文献仓库查看论文
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-
-          {/* 快速操作 */}
-          {rssSources.length > 0 && (
-            <div className="mt-6 pt-4 border-t">
-              <h3 className="text-sm font-semibold mb-3">快速操作</h3>
-              <div className="space-y-2">
-                <Input
-                  placeholder="关键词筛选（逗号分隔）"
-                  value={rssKeywords}
-                  onChange={(e) => setRssKeywords(e.target.value)}
-                  className="text-sm"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={previewRss}
-                  disabled={previewing || rssSources.filter(s => s.isActive).length === 0}
-                  className="w-full"
-                >
-                  {previewing ? '🔄 预览中...' : '👀 预览新论文'}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={refreshRss}
-                  disabled={refreshingRss || rssSources.filter(s => s.isActive).length === 0}
-                  className="w-full"
-                >
-                  {refreshingRss ? '🔄 刷新中...' : '🔄 刷新RSS'}
-                </Button>
-              </div>
-            </div>
-          )}
+            </CardContent>
+          </Card>
 
           {/* AI简报生成 */}
-          <div className="mt-6 pt-4 border-t">
-            <h3 className="text-sm font-semibold mb-3">🤖 AI研究简报</h3>
-            <div className="space-y-2">
-              <Input
-                placeholder="输入研究关键词..."
-                value={briefingKeyword}
-                onChange={(e) => setBriefingKeyword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && generateBriefing()}
-                className="text-sm"
-              />
-              <Button
-                onClick={generateBriefing}
-                disabled={generatingBriefing || !briefingKeyword.trim()}
-                className="w-full"
-                size="sm"
-              >
-                {generatingBriefing ? '🔄 生成中...' : '✨ 生成AI简报'}
-              </Button>
-              {briefingResult && (
+          <Card>
+            <CardHeader>
+              <CardTitle>🤖 AI研究简报生成</CardTitle>
+              <CardDescription>基于您的论文库生成结构化研究简报</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">研究关键词</label>
+                  <Input
+                    placeholder="输入研究领域关键词（如：深度学习、量子计算等）"
+                    value={briefingKeyword}
+                    onChange={(e) => setBriefingKeyword(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && generateBriefing()}
+                  />
+                </div>
                 <Button
-                  onClick={() => setBriefingResult(null)}
+                  onClick={generateBriefing}
+                  disabled={generatingBriefing || !briefingKeyword.trim()}
+                  className="w-full"
+                  size="lg"
+                >
+                  {generatingBriefing ? '🔄 生成中...' : '✨ 生成AI简报'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 最近的简报 */}
+          {briefingResult && (
+            <Card>
+              <CardHeader>
+                <CardTitle>📋 最新简报</CardTitle>
+                <CardDescription>基于 {briefingResult.papersCount} 篇论文生成</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="prose prose-sm max-w-none">
+                  <div className="bg-gray-50 rounded-lg p-4 whitespace-pre-wrap">
+                    {briefingResult.content}
+                  </div>
+                </div>
+
+                {/* 相关论文列表 */}
+                {briefingResult.papers && briefingResult.papers.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-sm font-semibold mb-3">📚 相关论文</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {briefingResult.papers.map((paper: any) => (
+                        <div
+                          key={paper.id}
+                          className="p-3 bg-white border rounded-lg hover:bg-gray-50 cursor-pointer"
+                          onClick={() => {
+                            setCurrentPage('repository');
+                            // 滚动到该论文
+                            setTimeout(() => {
+                              const element = document.getElementById(`paper-${paper.id}`);
+                              if (element) {
+                                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                element.classList.add('ring-2', 'ring-blue-500');
+                                setTimeout(() => {
+                                  element.classList.remove('ring-2', 'ring-blue-500');
+                                }, 2000);
+                              }
+                            }, 100);
+                          }}
+                        >
+                          <h4 className="text-sm font-medium line-clamp-2 mb-2">{paper.title}</h4>
+                          <div className="flex items-center gap-2 text-xs text-gray-600">
+                            {paper.journalName && (
+                              <span>📚 {paper.journalName}</span>
+                            )}
+                            {paper.publicationDate && (
+                              <span>📅 {new Date(paper.publicationDate).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* AI摘要页面 */}
+      {currentPage === 'summary' && (
+        <div className="max-w-4xl mx-auto p-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>✨ AI论文摘要</CardTitle>
+              <CardDescription>为单篇论文生成智能摘要</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  💡 提示：请先在文献仓库中选择要生成摘要的论文
+                </p>
+                <Button
+                  onClick={() => setCurrentPage('repository')}
                   variant="outline"
-                  size="sm"
                   className="w-full"
                 >
-                  查看上次简报 ({briefingResult.papersCount}篇论文)
+                  📖 前往文献仓库选择论文
                 </Button>
-              )}
-            </div>
-          </div>
-        </aside>
-      </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Toast组件 */}
       {toast && (
@@ -1358,73 +1636,6 @@ export default function Home() {
                   </div>
                 )}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI简报展示对话框 */}
-      {briefingResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[85vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-xl font-bold">🤖 AI研究简报</h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    基于 {briefingResult.papersCount} 篇相关论文生成
-                  </p>
-                </div>
-                <button
-                  onClick={() => setBriefingResult(null)}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  <X size={24} />
-                </button>
-              </div>
-
-              <div className="prose prose-sm max-w-none">
-                <div className="bg-gray-50 rounded-lg p-4 whitespace-pre-wrap">
-                  {briefingResult.content}
-                </div>
-              </div>
-
-              {/* 相关论文列表 */}
-              {briefingResult.papers && briefingResult.papers.length > 0 && (
-                <div className="mt-6">
-                  <h3 className="text-sm font-semibold mb-3">📚 相关论文</h3>
-                  <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {briefingResult.papers.map((paper: any) => (
-                      <div
-                        key={paper.id}
-                        className="p-3 bg-white border rounded-lg hover:bg-gray-50 cursor-pointer"
-                        onClick={() => {
-                          // 滚动到该论文
-                          const element = document.getElementById(`paper-${paper.id}`);
-                          if (element) {
-                            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            element.classList.add('ring-2', 'ring-blue-500');
-                            setTimeout(() => {
-                              element.classList.remove('ring-2', 'ring-blue-500');
-                            }, 2000);
-                          }
-                          setBriefingResult(null);
-                        }}
-                      >
-                        <h4 className="text-sm font-medium line-clamp-2">{paper.title}</h4>
-                        <div className="flex items-center gap-2 mt-1 text-xs text-gray-600">
-                          {paper.journalName && (
-                            <span>📚 {paper.journalName}</span>
-                          )}
-                          {paper.publicationDate && (
-                            <span>📅 {new Date(paper.publicationDate).toLocaleDateString()}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
