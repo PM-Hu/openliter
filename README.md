@@ -21,6 +21,14 @@
 - 🔍 **全文搜索** - 支持标题、作者、摘要等多维度搜索
 - 💾 **本地存储** - 基于 SQLite，无需配置服务器
 
+## 🖥️ 界面展示
+
+<div align="center">
+
+![桌面界面](image/README/desktop.png)
+
+</div>
+
 ## 🛠️ 技术栈
 
 - **前端**: Next.js 15 + TypeScript + Tailwind CSS
