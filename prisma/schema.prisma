@@ -39,3 +39,9 @@ model RssSource {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 }
+
+model SavedKeyword {
+  id          Int      @id @default(autoincrement())
+  keyword     String
+  createdAt   DateTime @default(now())
+}

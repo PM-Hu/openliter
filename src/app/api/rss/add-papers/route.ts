@@ -17,14 +17,24 @@ export async function POST(request: Request) {
 
     for (const paper of papers) {
       try {
-        // 再次检查是否已存在
+        // 去重检查：标题 + 作者组合匹配
+        const whereConditions: any[] = [
+          { title: paper.title }
+        ];
+
+        // 如果有作者信息，添加作者匹配条件
+        if (paper.authors && paper.authors !== 'Unknown') {
+          whereConditions.push({ authors: paper.authors });
+        }
+
         const existing = await prisma.paper.findFirst({
           where: {
-            title: paper.title,
+            AND: whereConditions,
           },
         });
 
         if (existing) {
+          console.log(`⏭️  跳过重复论文: "${paper.title?.substring(0, 50)}..."`);
           skippedIds.push(paper.id || Math.random());
           continue;
         }

@@ -145,21 +145,6 @@ export async function POST(request: Request) {
             const arxivId = extractArxivId(item.link || '');
             const pdfUrl = item.link || '';
 
-            // 去重检查（根据arxivId或标题）
-            const existing = await prisma.paper.findFirst({
-              where: {
-                OR: [
-                  { arxivId: arxivId || undefined },
-                  { title: item.title || '' },
-                ],
-              },
-            });
-
-            if (existing) {
-              sourceSkipped++;
-              continue;
-            }
-
             // 检查是否是 Elsevier RSS（通过名称、URL 或 sciencedirect 域名）
             const isElsevier = source.name.toLowerCase().includes('elsevier') ||
                               source.url.toLowerCase().includes('elsevier') ||
@@ -227,6 +212,42 @@ export async function POST(request: Request) {
             } else {
               // 非 Elsevier 论文，使用默认清理方法
               abstract = cleanAbstract(item.contentSnippet || item.content || '');
+            }
+
+            // 去重检查：标题 + 作者组合匹配
+            const whereConditions: any[] = [
+              { title: item.title || 'Unknown Title' }
+            ];
+
+            // 如果有作者信息且不是默认值，添加作者匹配条件
+            if (authors && authors !== 'Unknown') {
+              whereConditions.push({ authors: authors });
+            }
+
+            // 优先检查 arXiv ID（如果存在）
+            if (arxivId) {
+              const existingByArxivId = await prisma.paper.findFirst({
+                where: { arxivId: arxivId },
+              });
+
+              if (existingByArxivId) {
+                console.log(`    ⏭️  跳过重复论文 (arXiv ID): ${item.title?.substring(0, 50)}...`);
+                sourceSkipped++;
+                continue;
+              }
+            }
+
+            // 检查标题+作者组合
+            const existing = await prisma.paper.findFirst({
+              where: {
+                AND: whereConditions,
+              },
+            });
+
+            if (existing) {
+              console.log(`    ⏭️  跳过重复论文 (标题+作者): ${item.title?.substring(0, 50)}...`);
+              sourceSkipped++;
+              continue;
             }
 
             // 保存论文

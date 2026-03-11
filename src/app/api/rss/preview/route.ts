@@ -240,23 +240,47 @@ export async function POST(request: Request) {
               }
             }
 
-            // 去重检查
+            // 先提取作者信息（用于去重检查）
+            let authors = item.creator || item['dc:creator'] || 'Unknown';
+            let abstract = '';
+            let hasAbstract = false;
+
+            if (isElsevier) {
+              // 从 content 中提取作者信息
+              const extractedAuthors = extractAuthorsFromContent(item.content || '');
+              if (extractedAuthors) {
+                authors = extractedAuthors;
+              }
+
+              // 清理 RSS 中的摘要（不调用 Semantic Scholar）
+              abstract = cleanElsevierAbstract(item['description'] || item.content || item.contentSnippet || '');
+              hasAbstract = abstract.length > 50;
+            } else {
+              // 非 Elsevier 论文，使用默认清理方法
+              abstract = (item.contentSnippet || item.content || '').replace(/<[^>]*>/g, '').trim();
+              hasAbstract = abstract.length > 50;
+            }
+
+            // 去重检查：标题 + 作者组合匹配
+            const whereConditions: any[] = [
+              { title: item.title || '' }
+            ];
+
+            // 如果有作者信息，添加作者匹配条件
+            if (authors && authors !== 'Unknown') {
+              whereConditions.push({ authors: authors });
+            }
+
             const existing = await prisma.paper.findFirst({
               where: {
-                OR: [
-                  { title: item.title || '' },
-                ],
+                AND: whereConditions,
               },
             });
 
             if (existing) {
+              console.log(`    ⏭️  跳过重复论文: "${item.title?.substring(0, 50)}..."`);
               continue; // 跳过已存在的论文
             }
-
-            // 提取作者和摘要（不调用 Semantic Scholar）
-            let authors = item.creator || item['dc:creator'] || 'Unknown';
-            let abstract = '';
-            let hasAbstract = false;
 
             if (isElsevier) {
               // 从 content 中提取作者信息

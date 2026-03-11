@@ -62,13 +62,17 @@ export default function Home() {
   const [newRssName, setNewRssName] = useState('');
   const [newRssUrl, setNewRssUrl] = useState('');
   const [rssKeywords, setRssKeywords] = useState('');
-  const [refreshingRss, setRefreshingRss] = useState(false);
   const [testingRss, setTestingRss] = useState(false);
   const [rssTestResult, setRssTestResult] = useState<{
     success: boolean;
     message: string;
     info?: any;
   } | null>(null);
+
+  // 保存的关键词管理
+  const [savedKeywords, setSavedKeywords] = useState<Array<{ id: number; keyword: string }>>([]);
+  const [newKeyword, setNewKeyword] = useState('');
+  const [showAddKeywordDialog, setShowAddKeywordDialog] = useState(false);
 
   // 预览相关状态
   const [previewPapers, setPreviewPapers] = useState<any[]>([]);
@@ -78,18 +82,12 @@ export default function Home() {
   const [fetchingAbstracts, setFetchingAbstracts] = useState<Set<number>>(new Set());
 
   // AI简报相关状态
-  const [briefingKeyword, setBriefingKeyword] = useState('');
   const [generatingBriefing, setGeneratingBriefing] = useState(false);
   const [briefingResult, setBriefingResult] = useState<{
     content: string;
     papersCount: number;
     papers: any[];
   } | null>(null);
-
-  // AI摘要相关状态
-  const [summaryKeyword, setSummaryKeyword] = useState('');
-  const [generatingSummary, setGeneratingSummary] = useState(false);
-  const [selectedPaperForSummary, setSelectedPaperForSummary] = useState<any | null>(null);
 
   // 页面导航状态
   const [currentPage, setCurrentPage] = useState<'home' | 'briefing' | 'summary' | 'repository'>('home');
@@ -118,6 +116,7 @@ export default function Home() {
     fetchPapers();
     fetchCategories();
     fetchRssSources();
+    fetchSavedKeywords();
   }, []);
 
   const fetchPapers = async () => {
@@ -147,6 +146,71 @@ export default function Home() {
       setRssSources(data);
     } catch (error) {
       console.error('加载RSS源失败：', error);
+    }
+  };
+
+  const fetchSavedKeywords = async () => {
+    try {
+      const res = await fetch('/api/keywords');
+      const data = await res.json();
+      setSavedKeywords(data);
+    } catch (error) {
+      console.error('加载关键词失败：', error);
+    }
+  };
+
+  const addKeyword = async () => {
+    if (!newKeyword || newKeyword.trim().length === 0) {
+      showToast('请输入关键词', 'error');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/keywords/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyword: newKeyword.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        showToast('添加失败：' + data.error, 'error');
+      } else {
+        setNewKeyword('');
+        fetchSavedKeywords();
+        showToast('✅ 关键词已添加', 'success');
+        setShowAddKeywordDialog(false);
+      }
+    } catch (error) {
+      console.error('添加关键词失败：', error);
+      showToast('添加失败', 'error');
+    }
+  };
+
+  const deleteKeyword = async (id: number) => {
+    showConfirm('确定要删除这个关键词吗？', async () => {
+      try {
+        const res = await fetch(`/api/keywords/add?id=${id}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          fetchSavedKeywords();
+          showToast('✅ 关键词已删除', 'success');
+        }
+      } catch (error) {
+        console.error('删除关键词失败：', error);
+        showToast('删除失败', 'error');
+      }
+    });
+  };
+
+  const toggleKeyword = (keyword: string) => {
+    if (rssKeywords.includes(keyword)) {
+      // 如果已存在，移除它
+      setRssKeywords(rssKeywords.split(',').filter(k => k !== keyword).join(','));
+    } else {
+      // 如果不存在，添加它
+      const current = rssKeywords ? rssKeywords.split(',').filter(k => k.trim()) : [];
+      setRssKeywords([...current, keyword].join(','));
     }
   };
 
@@ -433,36 +497,10 @@ export default function Home() {
     }
   };
 
-  const refreshRss = async () => {
-    setRefreshingRss(true);
-    try {
-      const res = await fetch('/api/rss/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sourceIds: rssSources.filter(s => s.isActive).map(s => s.id),
-          keywords: rssKeywords,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        fetchPapers();
-        fetchCategories();
-        showToast(`✅ 刷新成功！添加 ${data.totalAdded} 篇论文`, 'success');
-      } else {
-        showToast('刷新失败：' + (data.error || '未知错误'), 'error');
-      }
-    } catch (error) {
-      console.error('刷新RSS失败：', error);
-      showToast('刷新失败', 'error');
-    } finally {
-      setRefreshingRss(false);
-    }
-  };
-
   const generateBriefing = async () => {
-    if (!briefingKeyword.trim()) {
-      showToast('请输入关键词', 'error');
+    const keywords = rssKeywords.trim();
+    if (!keywords) {
+      showToast('请先选择或输入关键词', 'error');
       return;
     }
 
@@ -472,7 +510,7 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          keyword: briefingKeyword,
+          keyword: keywords,
           maxPapers: 10,
         }),
       });
@@ -1277,7 +1315,7 @@ export default function Home() {
               <CardDescription>订阅学术期刊RSS源，收集最新论文</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-6">
                 {/* RSS源列表 */}
                 <div>
                   <h3 className="text-sm font-semibold mb-3">已订阅源</h3>
@@ -1293,47 +1331,49 @@ export default function Home() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {rssSources.map((source) => (
-                        <div
-                          key={source.id}
-                          onClick={() => toggleRssSource(source.id)}
-                          className={`p-3 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                            source.isActive
-                              ? 'bg-blue-50 border-blue-300'
-                              : 'bg-gray-50 border-gray-200'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
-                                  source.isActive
-                                    ? 'bg-blue-500 text-white'
-                                    : 'bg-gray-300 text-gray-500'
-                                }`}>
-                                  {source.isActive ? '✓' : '○'}
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        {rssSources.map((source) => (
+                          <div
+                            key={source.id}
+                            onClick={() => toggleRssSource(source.id)}
+                            className={`p-3 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
+                              source.isActive
+                                ? 'bg-blue-50 border-blue-300'
+                                : 'bg-gray-50 border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
+                                    source.isActive
+                                      ? 'bg-blue-500 text-white'
+                                      : 'bg-gray-300 text-gray-500'
+                                  }`}>
+                                    {source.isActive ? '✓' : '○'}
+                                  </div>
+                                  <h3 className={`text-sm font-medium truncate ${
+                                    source.isActive ? 'text-blue-900' : 'text-gray-600'
+                                  }`}>{source.name}</h3>
                                 </div>
-                                <h3 className={`text-sm font-medium ${
-                                  source.isActive ? 'text-blue-900' : 'text-gray-600'
-                                }`}>{source.name}</h3>
+                                <p className="text-xs text-gray-500 truncate" title={source.url}>{source.url}</p>
                               </div>
-                              <p className="text-xs text-gray-500 truncate">{source.url}</p>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteRssSource(source.id);
+                                }}
+                                className="text-red-500 hover:text-red-700 p-1 h-auto ml-2 flex-shrink-0"
+                              >
+                                <X size={14} />
+                              </Button>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                deleteRssSource(source.id);
-                              }}
-                              className="text-red-500 hover:text-red-700 p-1 h-auto ml-2"
-                            >
-                              <X size={14} />
-                            </Button>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                       <Button
                         variant="outline"
                         size="sm"
@@ -1342,90 +1382,92 @@ export default function Home() {
                       >
                         + 添加RSS源
                       </Button>
-                    </div>
+                    </>
                   )}
                 </div>
 
-                {/* 快速操作 */}
-                {rssSources.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold mb-3">快速操作</h3>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-xs text-gray-600 mb-1">关键词筛选</label>
-                        <Input
-                          placeholder="用逗号分隔多个关键词"
-                          value={rssKeywords}
-                          onChange={(e) => setRssKeywords(e.target.value)}
-                          className="text-sm"
-                        />
-                      </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={previewRss}
-                          disabled={previewing || rssSources.filter(s => s.isActive).length === 0}
-                        >
-                          {previewing ? '🔄 预览中...' : '👀 预览新论文'}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={refreshRss}
-                          disabled={refreshingRss || rssSources.filter(s => s.isActive).length === 0}
-                        >
-                          {refreshingRss ? '🔄 刷新中...' : '🔄 刷新RSS'}
-                        </Button>
-                      </div>
-                      {showPreview && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setCurrentPage('repository');
-                            setTimeout(() => {
-                              window.scrollTo({ top: 0, behavior: 'smooth' });
-                            }, 100);
-                          }}
-                          className="w-full"
-                        >
-                          前往文献仓库查看论文
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* AI简报生成 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>🤖 AI研究简报生成</CardTitle>
-              <CardDescription>基于您的论文库生成结构化研究简报</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
+                {/* 关键词（选中后筛选） */}
                 <div>
-                  <label className="block text-sm font-medium mb-2">研究关键词</label>
-                  <Input
-                    placeholder="输入研究领域关键词（如：深度学习、量子计算等）"
-                    value={briefingKeyword}
-                    onChange={(e) => setBriefingKeyword(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && generateBriefing()}
-                  />
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold">🏷️ 关键词（选中后筛选）</h3>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowAddKeywordDialog(true)}
+                      className="text-xs h-6 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                    >
+                      ➕ 添加
+                    </Button>
+                  </div>
+                  <div>
+                    {savedKeywords.length === 0 ? (
+                      <p className="text-sm text-gray-400 text-center py-4">还没有保存的关键词</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {savedKeywords.map((kw) => {
+                          const isSelected = rssKeywords.split(',').map(k => k.trim()).includes(kw.keyword);
+                          return (
+                            <button
+                              key={kw.id}
+                              onClick={() => toggleKeyword(kw.keyword)}
+                              className={`px-3 py-2 rounded-full border transition-colors flex items-center gap-1 text-[14px] ${
+                                isSelected
+                                  ? 'bg-green-100 border-green-300 text-green-700'
+                                  : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-gray-200'
+                              }`}
+                            >
+                              {isSelected ? '✓ ' : ''}{kw.keyword}
+                              <X
+                                size={12}
+                                className="hover:text-red-500"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteKeyword(kw.id);
+                                }}
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <Button
-                  onClick={generateBriefing}
-                  disabled={generatingBriefing || !briefingKeyword.trim()}
-                  className="w-full"
-                  size="lg"
-                >
-                  {generatingBriefing ? '🔄 生成中...' : '✨ 生成AI简报'}
-                </Button>
               </div>
+
+              {/* 操作按钮 */}
+              {rssSources.length > 0 && (
+                <div className="mt-6 pt-6 border-t">
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={previewRss}
+                      disabled={previewing || rssSources.filter(s => s.isActive).length === 0}
+                      className="w-full"
+                    >
+                      {previewing ? '🔄 预览中...' : '👀 预览新论文'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={generateBriefing}
+                      disabled={generatingBriefing}
+                      className="w-full"
+                    >
+                      {generatingBriefing ? '🔄 生成中...' : '🤖 生成AI简报'}
+                    </Button>
+                  </div>
+                  {showPreview && (
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="w-full mt-3 bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100"
+                    >
+                      📋 查看预览论文 ({previewPapers.length}篇)
+                    </Button>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -1635,6 +1677,174 @@ export default function Home() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 关键词添加对话框 */}
+      {showAddKeywordDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold">🏷️ 添加关键词</h2>
+                <button
+                  onClick={() => {
+                    setShowAddKeywordDialog(false);
+                    setNewKeyword('');
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">关键词名称</label>
+                  <Input
+                    placeholder="输入关键词（如：深度学习、量子计算等）"
+                    value={newKeyword}
+                    onChange={(e) => setNewKeyword(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newKeyword.trim()) {
+                        addKeyword();
+                      }
+                    }}
+                    autoFocus
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowAddKeywordDialog(false);
+                      setNewKeyword('');
+                    }}
+                    className="flex-1"
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    onClick={addKeyword}
+                    disabled={!newKeyword.trim()}
+                    className="flex-1"
+                  >
+                    添加
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 预览论文弹出对话框 */}
+      {showPreview && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* 对话框标题 */}
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold">📑 预览新论文</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    选择要添加的论文 ({selectedPreviewPapers.size} / {previewPapers.length})
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowPreview(false);
+                    setPreviewPapers([]);
+                    setSelectedPreviewPapers(new Set());
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+
+            {/* 对话框内容 - 可滚动 */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* 全选和批量操作 */}
+              <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg mb-4">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedPreviewPapers.size === previewPapers.length}
+                    onChange={toggleSelectAllPreview}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-sm font-medium">
+                    {selectedPreviewPapers.size === previewPapers.length ? '取消全选' : '全选'}
+                  </span>
+                </div>
+                <Button
+                  onClick={addSelectedPapers}
+                  disabled={selectedPreviewPapers.size === 0}
+                  size="sm"
+                >
+                  ✅ 添加选中的 ({selectedPreviewPapers.size})
+                </Button>
+              </div>
+
+              {/* 论文列表 */}
+              <div className="space-y-3">
+                {previewPapers.map((paper, index) => (
+                  <div
+                    key={index}
+                    className={`p-4 border rounded-lg transition-colors ${
+                      selectedPreviewPapers.has(index)
+                        ? 'bg-purple-50 border-purple-300'
+                        : 'bg-white hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedPreviewPapers.has(index)}
+                        onChange={() => togglePreviewPaper(index)}
+                        className="w-4 h-4 mt-1"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-medium mb-1 line-clamp-2">{paper.title}</h4>
+                        <p className="text-xs text-gray-600 mb-1">👤 {paper.authors}</p>
+                        {(paper.journalName || paper.publicationDate) && (
+                          <div className="flex items-center gap-2 mb-1">
+                            {paper.journalName && (
+                              <span className="text-xs text-purple-700">📚 {paper.journalName}</span>
+                            )}
+                            {(paper.publicationDate || paper.pubDate) && (
+                              <span className="text-xs text-gray-400">
+                                📅 {new Date(paper.publicationDate || paper.pubDate).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-500 line-clamp-2">
+                          {paper.abstract || '暂无摘要'}
+                        </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                            {paper.sourceName}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={fetchingAbstracts.has(index)}
+                            onClick={() => fetchAbstractForPaper(index)}
+                            className="text-xs h-7"
+                          >
+                            {fetchingAbstracts.has(index) ? '获取中...' : '📥 获取摘要'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
